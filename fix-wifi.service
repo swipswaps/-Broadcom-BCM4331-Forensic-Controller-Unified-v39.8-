@@ -1,0 +1,13 @@
+[Unit]
+Description=Broadcom BCM4331 Forensic Engine (Unified v39.8)
+After=network.target NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %PROJECT_ROOT%/fix-wifi.sh
+User=%USER%
+Group=%GROUP%
+Environment=PROJECT_ROOT=%PROJECT_ROOT%
+
+[Install]
+WantedBy=multi-user.target

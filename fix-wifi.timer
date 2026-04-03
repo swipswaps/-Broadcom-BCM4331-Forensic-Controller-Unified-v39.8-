@@ -1,0 +1,10 @@
+[Unit]
+Description=Broadcom BCM4331 Forensic Engine (Unified v39.8) Timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=fix-wifi.service
+
+[Install]
+WantedBy=timers.target

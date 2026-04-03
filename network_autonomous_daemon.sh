@@ -15,6 +15,7 @@ set -euo pipefail
 LOG_TAG="[AUTO-NET]"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB_SCRIPT="${REPO_DIR}/hardware_software_db.sh"
+LOG_FILE="${REPO_DIR}/verbatim_handshake.log"
 
 # Fallback DNS is ONLY used if no DNS is present at all
 FALLBACK_DNS="${FALLBACK_DNS:-1.1.1.1 8.8.8.8}"
@@ -30,7 +31,7 @@ LAST_DNS_REPAIR=0
 # LOGGING
 # -----------------------------------------------------------------------------
 log() {
-  echo "$(date -Iseconds) $LOG_TAG $1"
+  echo "$(date -Iseconds) $LOG_TAG $1" >> "$LOG_FILE"
 }
 
 fail_soft() {
@@ -143,23 +144,14 @@ main_loop() {
     # 1. DNS Validation
     if ! validate_dns; then
       fail_soft "DNS failed"
-      repair_dns
+      # Call forensic engine for deep recovery
+      bash "${REPO_DIR}/fix-wifi.sh" || fail_soft "Forensic recovery failed"
     else
       log "DNS OK"
     fi
 
-    # 2. Git Validation
-    if ! git ls-remote origin >/dev/null 2>&1; then
-      fail_soft "Git remote unreachable"
-    else
-      # 3. Snapshot & Update
-      capture_system_state
-      
-      if check_for_updates; then
-        log "Update available on $BRANCH"
-        apply_update || fail_soft "Auto-update failed"
-      fi
-    fi
+    # 2. Forensic Snapshot
+    bash "${REPO_DIR}/fix-wifi.sh" --snapshot-only 2>/dev/null || true
 
     sleep "$SLEEP_INTERVAL"
   done

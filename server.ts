@@ -91,6 +91,9 @@ async function startServer() {
   // --- API: Forensics ---
   app.get('/api/forensics', (req, res) => {
     try {
+      if (!fs.existsSync(LOG_FILE)) return res.json({ events: [], logTail: [], dbSnapshots: [] });
+      const content = fs.readFileSync(LOG_FILE, 'utf8');
+      const lines = content.split('\n');
       const events = parseForensics();
       const dbTail = fs.existsSync(DB_FILE)
         ? execSync(`tail -n 50 "${DB_FILE}"`, { encoding: 'utf8' })
@@ -98,6 +101,7 @@ async function startServer() {
 
       res.json({
         events,
+        logTail: lines.slice(-100),
         dbSnapshots: dbTail.split('\n').filter(Boolean).map(line => {
           try { return JSON.parse(line); } catch(e) { return null; }
         }).filter(Boolean)
@@ -107,18 +111,28 @@ async function startServer() {
     }
   });
 
+  let dashboard: any = null;
+
   // --- API: Fix ---
   app.post('/api/fix', (req, res) => {
     if (currentTelemetry.isFixing) return res.status(409).json({ error: 'Busy' });
     currentTelemetry.isFixing = true;
     console.log('[SERVER] NUCLEAR RECOVERY TRIGGERED');
     
-    // Simulate recovery
-    setTimeout(() => {
+    // Execute real fix-wifi.sh
+    const fixProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'fix-wifi.sh')]);
+    
+    fixProcess.stdout.on('data', (data) => {
+      const msg = data.toString().trim();
+      if (msg && dashboard) {
+        dashboard.log(`[FIX] ${msg}`);
+      }
+    });
+
+    fixProcess.on('close', (code) => {
       currentTelemetry.isFixing = false;
-      currentTelemetry.health = 100;
-      currentTelemetry.connectivity = true;
-    }, 5000);
+      if (dashboard) dashboard.log(`[FIX] Sequence complete with code ${code}`);
+    });
 
     res.json({ status: 'initiated' });
   });
@@ -143,8 +157,16 @@ async function startServer() {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[SERVER] Listening on port ${PORT}`);
     
+    // Start Autonomous Daemon in background
+    const daemon = spawn('bash', [path.join(WORKSPACE_DIR, 'network_autonomous_daemon.sh')], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    daemon.unref();
+    console.log('[SERVER] Autonomous Daemon started in background.');
+
     // Start Terminal Dashboard
-    const dashboard = startDashboard(
+    dashboard = startDashboard(
       () => currentTelemetry,
       () => {
         // Trigger fix logic

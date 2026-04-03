@@ -51,6 +51,7 @@ interface ForensicEvent {
 interface Forensics {
   events: ForensicEvent[];
   dbSnapshots: any[];
+  logTail: string[];
 }
 
 export default function App() {

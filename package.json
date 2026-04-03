@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "PROJECT_ROOT=$(pwd) tsx server.ts",
-    "setup": "chmod +x *.sh && ./network_autonomous_daemon.sh",
+    "setup": "chmod +x *.sh && ./setup-system.sh",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
