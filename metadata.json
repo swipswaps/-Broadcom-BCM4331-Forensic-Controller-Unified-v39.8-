@@ -1,0 +1,5 @@
+{
+  "name": "BCM4331 Forensic Controller",
+  "description": "Deterministic, self-healing network recovery and forensic telemetry suite for Broadcom BCM4331 hardware.",
+  "requestFramePermissions": []
+}
