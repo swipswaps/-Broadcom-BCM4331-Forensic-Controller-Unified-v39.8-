@@ -37,7 +37,8 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
   const healthGauges = grid.set(4, 0, 2, 4, contrib.gaugeList, {
     label: ' 🩺 Health Components ',
     gaugeHeight: 2,
-    gaugeSpacing: 1
+    gaugeSpacing: 1,
+    gauges: [] // Fix: Initialize with empty array to prevent TypeError in blessed-contrib
   });
 
   const pidBars = grid.set(4, 4, 2, 4, contrib.bar, {
