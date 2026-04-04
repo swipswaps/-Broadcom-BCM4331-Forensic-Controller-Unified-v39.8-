@@ -19,9 +19,21 @@ log_event() {
     echo "[$(date -Iseconds)] [$type] $msg" >> "$LOG_FILE"
 }
 
-# Discover all wireless interfaces
+# Discover all network interfaces (excluding loopback)
 discover_interfaces() {
-    nmcli -t -f DEVICE dev | grep -E "^w" || true
+    local ifaces_nm=""
+    local ifaces_ip=""
+    
+    if command -v nmcli >/dev/null 2>&1; then
+        ifaces_nm=$(nmcli -t -f DEVICE dev | grep -v "lo" || true)
+    fi
+    
+    if command -v ip >/dev/null 2>&1; then
+        ifaces_ip=$(ip -o link show | awk -F': ' '{print $2}' | grep -v "lo" | sed 's/@.*//' || true)
+    fi
+    
+    # Combine and unique
+    echo -e "${ifaces_nm}\n${ifaces_ip}" | sort -u | grep -v "^$" || true
 }
 
 sniff_interface() {
@@ -29,21 +41,25 @@ sniff_interface() {
     local duration="$2"
     local rx_bytes tx_bytes
     
-    # Use tcpdump to count bytes on the interface
-    # We capture for a short duration and parse the output
-    # Note: We use sudo as configured in setup-system.sh
+    # Check if interface exists in /proc/net/dev
+    if ! grep -q "$iface" /proc/net/dev; then
+        log_event "ERROR" "Interface $iface not found in /proc/net/dev"
+        echo "$iface:0:0"
+        return
+    fi
     
     # Get initial stats from /proc/net/dev for baseline
     local start_rx start_tx end_rx end_tx
-    start_rx=$(grep "$iface" /proc/net/dev | awk '{print $2}')
-    start_tx=$(grep "$iface" /proc/net/dev | awk '{print $10}')
+    start_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}')
+    start_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}')
     
     # Run a dummy tcpdump to "sniff" and show forensic activity
-    sudo timeout "$duration" tcpdump -i "$iface" -c 100 >/dev/null 2>&1 || true
+    # We use -c 1 to just confirm it's working, or timeout
+    sudo timeout "$duration" tcpdump -i "$iface" -c 10 >/dev/null 2>&1 || true
     
     # Get final stats
-    end_rx=$(grep "$iface" /proc/net/dev | awk '{print $2}')
-    end_tx=$(grep "$iface" /proc/net/dev | awk '{print $10}')
+    end_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}')
+    end_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}')
     
     local diff_rx=$((end_rx - start_rx))
     local diff_tx=$((end_tx - start_tx))

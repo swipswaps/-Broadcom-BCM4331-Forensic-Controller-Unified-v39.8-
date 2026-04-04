@@ -9,7 +9,8 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     smartCSR: true,
     title: '🛰️ BCM4331 Forensic Controller (Unified v39.8)',
     dockBorders: true,
-    fullUnicode: true
+    fullUnicode: true,
+    mouse: true
   });
 
   const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
@@ -99,6 +100,7 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
   });
 
   screen.key(['n'], () => {
+    if (forensicLog) forensicLog.log('[DASH] Handshake requested via key [N]');
     triggerFix();
   });
 

@@ -13,10 +13,10 @@ LOG_FILE="${PROJECT_ROOT}/verbatim_handshake.log"
 LOCK_FILE="/tmp/fix-wifi.lock"
 DB_FILE="${PROJECT_ROOT}/config_db.jsonl"
 
-# [AUDIT POINT 3] Mutex Acquisition
+# [AUDIT POINT 3] Mutex Acquisition (Wait up to 30s)
 exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    echo "[$(date -Iseconds)] Mutex busy. Exiting." >> "$LOG_FILE"
+if ! flock -w 30 200; then
+    log_event "ERROR" "Mutex busy for >30s. Another recovery instance is likely hung."
     exit 1
 fi
 

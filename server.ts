@@ -35,12 +35,27 @@ async function startServer() {
     gitUpdateAvailable: false,
     lastTick: new Date().toISOString(),
     // Multi-interface load balancing state
-    interfaces: [
-      { name: 'wlp2s0b1', rx: 124.5, tx: 45.2, weight: 1.0, health: 100 },
-      { name: 'wlp3s0', rx: 0, tx: 0, weight: 0.0, health: 0 }
-    ],
+    interfaces: [] as any[],
     isBenchmarking: false
   };
+
+  // Initial interface discovery
+  try {
+    const ifaces = execSync('nmcli -t -f DEVICE dev | grep -v "lo"', { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+    currentTelemetry.interfaces = ifaces.map(name => ({
+      name,
+      rx: 0,
+      tx: 0,
+      weight: 1 / ifaces.length,
+      health: 100
+    }));
+    if (ifaces.length > 0) currentTelemetry.bkwInterface = ifaces[0];
+  } catch (e) {
+    console.error('[SERVER] Failed to discover interfaces on startup:', e);
+    currentTelemetry.interfaces = [{ name: 'wlp2s0b1', rx: 0, tx: 0, weight: 1.0, health: 100 }];
+  }
 
   // --- PID Load Balancer Logic ---
   function updateLoadBalancing() {
@@ -87,11 +102,13 @@ async function startServer() {
 
     benchProcess.on('close', (code) => {
       currentTelemetry.isBenchmarking = false;
+      console.log(`[SERVER] Benchmark process closed with code ${code}. Output: "${output.trim()}"`);
       if (code === 0) {
         // Parse output: iface1:rx:tx,iface2:rx:tx
-        const parts = output.trim().split(',');
+        const parts = output.trim().split(',').filter(Boolean);
         const newInterfaces = parts.map(p => {
           const [name, rx, tx] = p.split(':');
+          if (!name) return null;
           return {
             name,
             rx: parseFloat(rx) || 0,
@@ -99,7 +116,7 @@ async function startServer() {
             weight: 0.5, // Reset weight for re-balancing
             health: 100
           };
-        });
+        }).filter(Boolean) as any[];
         
         if (newInterfaces.length > 0) {
           currentTelemetry.interfaces = newInterfaces;
@@ -203,13 +220,23 @@ async function startServer() {
 
   // --- API: Fix ---
   const triggerRecovery = () => {
-    if (currentTelemetry.isFixing) return;
+    console.log('[SERVER] triggerRecovery called');
+    if (currentTelemetry.isFixing) {
+      console.log('[SERVER] Recovery already in progress, ignoring.');
+      return;
+    }
     currentTelemetry.isFixing = true;
     console.log('[SERVER] NUCLEAR RECOVERY TRIGGERED');
     
     // Execute real fix-wifi.sh
     const fixProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'fix-wifi.sh')]);
     
+    fixProcess.on('error', (err) => {
+      currentTelemetry.isFixing = false;
+      console.error(`[SERVER] Failed to start fix-wifi.sh: ${err.message}`);
+      if (dashboard) dashboard.log(`[FIX] ERROR: Failed to start script: ${err.message}`);
+    });
+
     fixProcess.stdout.on('data', (data) => {
       const msg = data.toString().trim();
       if (msg && dashboard) {
