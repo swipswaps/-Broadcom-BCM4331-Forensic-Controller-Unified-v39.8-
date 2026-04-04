@@ -144,7 +144,7 @@ echo ""
 # ── Section 4: Live system state ────────────────────────────────────────────
 echo "[ Live State ]"
 
-WIFI_HW=$(nmcli radio 2>/dev/null | awk '/WIFI-HW/{print $1}' || echo "unknown")
+WIFI_HW=$(nmcli radio 2>/dev/null | awk 'NR>1{print $1; exit}' || echo "unknown")
 if [[ "$WIFI_HW" == "enabled" ]]; then
     check "WIFI-HW enabled" "pass"
 else
