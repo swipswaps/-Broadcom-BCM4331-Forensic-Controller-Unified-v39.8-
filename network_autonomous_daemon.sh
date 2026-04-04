@@ -14,6 +14,13 @@ set -euo pipefail
 
 LOG_TAG="[AUTO-NET]"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- STEP 0: ROOT PRIVILEGE GATE ---
+# Ensures we use the sudoers drop-in for non-interactive forensics
+if [[ $EUID -ne 0 ]]; then
+   exec /usr/bin/sudo "$0" "$@"
+fi
+
 DB_SCRIPT="${REPO_DIR}/hardware_software_db.sh"
 LOG_FILE="${REPO_DIR}/verbatim_handshake.log"
 

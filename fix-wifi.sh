@@ -9,6 +9,13 @@ IFS=$'\n\t'
 
 # [AUDIT POINT 2] Path Resolution & Mutex Lock
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- STEP 0: ROOT PRIVILEGE GATE ---
+# Ensures we use the sudoers drop-in for non-interactive forensics
+if [[ $EUID -ne 0 ]]; then
+   exec /usr/bin/sudo "$0" "$@"
+fi
+
 LOG_FILE="${PROJECT_ROOT}/verbatim_handshake.log"
 LOCK_FILE="${PROJECT_ROOT}/.fix-wifi.lock"
 DB_FILE="${PROJECT_ROOT}/config_db.jsonl"
