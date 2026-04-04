@@ -161,6 +161,23 @@ else
     echo "[SETUP] WARN: initramfs not rebuilt. Wi-Fi will work post-boot but not at boot time."
 fi
 
+# ── 8. SELinux context for scripts ─────────────────────────────────────────────
+# WHY: SELinux denies init_t (systemd) executing user_home_t files.
+#      Confirmed: 14 AVC denied execute entries in audit.log (session 2026-04-04).
+#      fix-wifi.service and network_autonomous_daemon.sh both blocked until labeled.
+#      semanage fcontext persists across restorecon and git checkout operations.
+echo "[SETUP] Applying SELinux bin_t context to project scripts."
+if command -v semanage >/dev/null 2>&1; then
+    SEMANAGE_RULE="${PROJECT_ROOT}/.*\.sh"
+    if ! sudo semanage fcontext -l | grep -q "$PROJECT_ROOT"; then
+        sudo semanage fcontext -a -t bin_t "$SEMANAGE_RULE" 2>/dev/null || true
+    fi
+    sudo restorecon -q "${PROJECT_ROOT}"/*.sh 2>/dev/null || true
+    echo "[SETUP] SELinux context applied."
+else
+    echo "[SETUP] WARN: semanage not found -- SELinux context not set. Install policycoreutils-python-utils."
+fi
+
 # ── 8. Initialize database and log ──────────────────────────────────────────
 [[ ! -f "${PROJECT_ROOT}/config_db.jsonl" ]] && touch "${PROJECT_ROOT}/config_db.jsonl"
 [[ ! -f "${PROJECT_ROOT}/verbatim_handshake.log" ]] && touch "${PROJECT_ROOT}/verbatim_handshake.log"

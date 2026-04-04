@@ -258,12 +258,31 @@ perform_wifi_recovery() {
         sleep 2
     fi
 
-    sleep 2
-    if wifi_is_healthy; then
+    # Step 5: poll telemetry until IP assigned -- no arbitrary sleep
+    # WHY: using real audit points (iface_up, ip_assigned, gw_reachable) confirms
+    #      actual connectivity state rather than guessing with a fixed sleep.
+    #      "connecting (getting IP)" is a valid intermediate state -- wait for it.
+    local poll_iface
+    poll_iface="${wl_iface}"
+    local ip_assigned=0
+    for i in {1..15}; do
+        local ip_out
+        ip_out=$(ip addr show "$poll_iface" 2>/dev/null || echo "")
+        if echo "$ip_out" | grep -q "inet "; then
+            ip_assigned=1
+            log_milestone "WIFI_IP_CONFIRMED: $(echo "$ip_out" | grep "inet " | awk "{print \$2}" | head -1)"
+            break
+        fi
+        local nm_state
+        nm_state=$(nmcli -t -f DEVICE,STATE device 2>/dev/null | grep "^${poll_iface}:" | cut -d: -f2 || echo "unknown")
+        log_milestone "WIFI_POLL_${i}: iface=${poll_iface} state=${nm_state}"
+        sleep 1
+    done
+    if [[ "$ip_assigned" -eq 1 ]]; then
         log_milestone "WIFI_RECOVERY_SUCCESS"
         return 0
     else
-        log_milestone "WIFI_RECOVERY_FAILED: interface present but not connected"
+        log_milestone "WIFI_RECOVERY_FAILED: no IP on ${poll_iface} after 15 polls"
         return 1
     fi
 }
