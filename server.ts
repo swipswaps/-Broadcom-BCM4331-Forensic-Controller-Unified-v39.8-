@@ -139,9 +139,9 @@ async function startServer() {
           updateLoadBalancing();
         }
         
-        console.log(`[BENCH] Completed with ${newInterfaces.length} interfaces.`);
+        console.error(`[BENCH] Completed with ${newInterfaces.length} interfaces.`);
       } else {
-        console.log(`[BENCH] Failed with code ${code}`);
+        console.error(`[BENCH] Failed with code ${code}`);
       }
     });
   };
@@ -154,7 +154,16 @@ async function startServer() {
   // Background tasks
   setInterval(() => {
     runBenchmark();
-  }, 10000);
+    // Also parse signal from logs periodically
+    const forensics = parseForensics();
+    const lastSignal = forensics.find((e: any) => e.type === 'TELEMETRY' && e.message.includes('Signal:'));
+    if (lastSignal) {
+      const signalMatch = lastSignal.message.match(/Signal: (.*?) dBm/);
+      if (signalMatch) {
+        currentTelemetry.signal = parseInt(signalMatch[1]) || -45;
+      }
+    }
+  }, 30000);
 
   // --- API: PID Tune ---
   app.post('/api/pid/tune', (req, res) => {
@@ -177,12 +186,13 @@ async function startServer() {
 
   // --- Forensic Log Parser ---
   function parseForensics() {
-    if (!fs.existsSync(LOG_FILE)) return { events: [], stats: {} };
+    if (!fs.existsSync(LOG_FILE)) return [];
     const content = fs.readFileSync(LOG_FILE, 'utf8');
     const lines = content.split('\n');
     
     const events: any[] = [];
     const patterns = [
+      { type: 'TELEMETRY', regex: /Signal: (.*?) dBm on (.*)/, label: 'Signal Strength' },
       { type: 'MODULE', regex: /modprobe (\w+)/, label: 'Kernel Module' },
       { type: 'RFKILL', regex: /rfkill unblock (\w+)/, label: 'RFKill Event' },
       { type: 'NMCLI', regex: /nmcli (device|connection) (\w+)/, label: 'NetworkManager' },
@@ -249,13 +259,13 @@ async function startServer() {
 
   // --- API: Fix ---
   const triggerRecovery = () => {
-    console.log('[SERVER] triggerRecovery called');
+    console.error('[SERVER] triggerRecovery called');
     if (currentTelemetry.isFixing) {
-      console.log('[SERVER] Recovery already in progress, ignoring.');
+      console.error('[SERVER] Recovery already in progress, ignoring.');
       return;
     }
     currentTelemetry.isFixing = true;
-    console.log('[SERVER] NUCLEAR RECOVERY TRIGGERED');
+    console.error('[SERVER] NUCLEAR RECOVERY TRIGGERED');
     
     // Execute real fix-wifi.sh
     const fixProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'fix-wifi.sh')]);
@@ -274,7 +284,7 @@ async function startServer() {
 
     fixProcess.on('close', (code) => {
       currentTelemetry.isFixing = false;
-      console.log(`[SERVER] fix-wifi.sh closed with code ${code}`);
+      console.error(`[SERVER] fix-wifi.sh closed with code ${code}`);
       fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] fix-wifi.sh closed with code ${code}\n`);
     });
 
@@ -309,13 +319,13 @@ async function startServer() {
   killPortOccupant(PORT);
 
   const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SERVER] Listening on port ${PORT}`);
+    console.error(`[SERVER] Listening on port ${PORT}`);
     fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] UID: ${process.getuid()}, EUID: ${process.geteuid()}\n`);
     fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] PATH: ${process.env.PATH}\n`);
     
     // Run system integration
     try {
-      console.log('[SERVER] Running system integration...');
+      console.error('[SERVER] Running system integration...');
       const setup = spawnSync('bash', [path.join(WORKSPACE_DIR, 'setup-system.sh')], {
         encoding: 'utf8'
       });
@@ -325,7 +335,7 @@ async function startServer() {
         fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
       } else {
         const msg = `[SERVER] Setup complete. Output: ${setup.stdout}`;
-        console.log(msg);
+        console.error(msg);
         fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Setup complete.\n`);
         if (setup.stderr) {
           fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Setup stderr: ${setup.stderr}\n`);
@@ -347,7 +357,7 @@ async function startServer() {
       fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DAEMON-STDERR] ${data}\n`);
     });
     daemon.unref();
-    console.log('[SERVER] Autonomous Daemon started in background.');
+    console.error('[SERVER] Autonomous Daemon started in background.');
     
     // Start Terminal Dashboard
     try {
@@ -355,7 +365,7 @@ async function startServer() {
         stdio: 'inherit',
         env: { ...process.env, PROJECT_ROOT: WORKSPACE_DIR }
       });
-      console.log('[SERVER] Terminal Dashboard spawned.');
+      console.error('[SERVER] Terminal Dashboard spawned.');
     } catch (e: any) {
       console.error('[SERVER] Failed to spawn dashboard:', e.message);
       fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Dashboard failed: ${e.message}\n`);

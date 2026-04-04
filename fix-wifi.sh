@@ -10,7 +10,7 @@ IFS=$'\n\t'
 # [AUDIT POINT 2] Path Resolution & Mutex Lock
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${PROJECT_ROOT}/verbatim_handshake.log"
-LOCK_FILE="/tmp/fix-wifi.lock"
+LOCK_FILE="${PROJECT_ROOT}/.fix-wifi.lock"
 DB_FILE="${PROJECT_ROOT}/config_db.jsonl"
 
 # [AUDIT POINT 3] Mutex Acquisition (Wait up to 30s)
@@ -58,20 +58,47 @@ hardware_handshake() {
     fi
 
     # [AUDIT POINT 9] Module Reload (The "Nuclear" Button)
-    log_event "MODULE" "Reloading BCM4331 driver (brcmsmac/bcma)."
+    log_event "MODULE" "Reloading BCM4331 driver (brcmsmac/bcma) with PCI unbind."
+    
+    # Stop NetworkManager and wpa_supplicant before reloading
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop NetworkManager wpa_supplicant 2>/dev/null || true
+    fi
+
+    # PCI Unbind Logic
+    if command -v lspci >/dev/null 2>&1; then
+        local PCI_BUS
+        PCI_BUS=$(lspci -n | grep "14e4:4331" | head -n 1 | awk '{print "0000:"$1}' || echo "")
+        if [[ -n "$PCI_BUS" ]] && [[ -e "/sys/bus/pci/devices/$PCI_BUS/driver/unbind" ]]; then
+            log_event "PCI" "Unbinding $PCI_BUS from driver."
+            echo "$PCI_BUS" | tee "/sys/bus/pci/devices/$PCI_BUS/driver/unbind" > /dev/null || true
+        fi
+    fi
+
     if command -v modprobe >/dev/null 2>&1; then
-        modprobe -r brcmsmac bcma || true
-        modprobe brcmsmac || log_event "ERROR" "modprobe failed."
+        # Purge all conflicting modules
+        for mod in wl bcma b43 ssb brcmsmac; do
+            modprobe -r "$mod" 2>/dev/null || true
+        done
+        
+        # Settle udev
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm settle --timeout=5 || true
+        fi
+
+        # Reload with allhwsupport=1
+        modprobe brcmsmac allhwsupport=1 || log_event "ERROR" "modprobe failed."
     else
         log_event "WARN" "modprobe not found, skipping."
     fi
 
-    # [AUDIT POINT 10] NetworkManager Force-On
-    log_event "NMCLI" "Forcing NetworkManager global networking ON."
+    # [AUDIT POINT 10] NetworkManager Restart
+    log_event "NMCLI" "Restarting NetworkManager."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl start NetworkManager || true
+    fi
     if command -v nmcli >/dev/null 2>&1; then
         nmcli networking on || true
-    else
-        log_event "WARN" "nmcli not found, skipping."
     fi
 
     # [AUDIT POINT 10.1] Force all interfaces UP

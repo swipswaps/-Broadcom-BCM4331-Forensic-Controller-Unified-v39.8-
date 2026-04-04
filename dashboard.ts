@@ -40,9 +40,9 @@ export function startDashboard() {
       setInterval(async () => {
         const data = await fetchTelemetry();
         if (data) {
-          logToFile(`TELEMETRY: Health=${data.health}, RX=${data.rx.toFixed(2)}, TX=${data.tx.toFixed(2)}`);
+          logToFile(`TELEMETRY: Health=${data.health}, RX=${(data.rx || 0).toFixed(2)}, TX=${(data.tx || 0).toFixed(2)}, Signal=${data.signal || -100}`);
         }
-      }, 5000);
+      }, 10000);
       return;
     }
 
@@ -175,7 +175,9 @@ export function startDashboard() {
     if (!data) return;
 
     // Update Charts
-    signalData.y.shift(); signalData.y.push(data.signal);
+    if (data.signal !== undefined) {
+      signalData.y.shift(); signalData.y.push(data.signal || -100);
+    }
     rxData.y.shift(); rxData.y.push(data.rx || 0);
     txData.y.shift(); txData.y.push(data.tx || 0);
     

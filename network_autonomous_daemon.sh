@@ -20,8 +20,8 @@ LOG_FILE="${REPO_DIR}/verbatim_handshake.log"
 # Fallback DNS is ONLY used if no DNS is present at all
 FALLBACK_DNS="${FALLBACK_DNS:-1.1.1.1 8.8.8.8}"
 BRANCH="master"
-SLEEP_INTERVAL=15
-DNS_REPAIR_COOLDOWN=60
+SLEEP_INTERVAL=60
+DNS_REPAIR_COOLDOWN=300
 LAST_DNS_REPAIR=0
 
 # Load DB functions
@@ -52,8 +52,14 @@ get_current_dns() {
 }
 
 validate_dns() {
-  # Simple resolution test
-  getent hosts github.com >/dev/null 2>&1
+  # Require 2 consecutive ping failures to trigger recovery (faster detection)
+  for i in {1..2}; do
+    if ping -c 1 -W 1 google.com >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
 }
 
 repair_dns() {
@@ -144,6 +150,13 @@ EOF
 # -----------------------------------------------------------------------------
 main_loop() {
   log "Starting Autonomous Daemon in $REPO_DIR"
+
+  # Start background kernel/NM monitoring (from legacy v39)
+  if command -v journalctl >/dev/null 2>&1; then
+    (journalctl -f -n 0 -u NetworkManager & dmesg -w) >> "$LOG_FILE" &
+    MONITOR_PID=$!
+    trap 'kill $MONITOR_PID 2>/dev/null' EXIT
+  fi
 
   while true; do
     # 1. DNS Validation
