@@ -1,13 +1,28 @@
 [Unit]
-Description=Broadcom BCM4331 Forensic Engine (Unified v39.8)
-After=network.target NetworkManager.service
+# PATH: fix-wifi.service
+Description=BCM4331 Wi-Fi Recovery (v39.9)
+# WHAT: runs fix-wifi.sh once after NetworkManager starts to ensure Wi-Fi
+#       is recovered even if boot-time b43 load failed (e.g. firmware timing)
+# WHY: boot-time b43 load fails with error -2 if initramfs does not include
+#      firmware. Running fix-wifi.sh post-boot with filesystem mounted ensures
+#      firmware is accessible and b43 can reload cleanly.
+#      Confirmed: modprobe bcma && modprobe b43 post-boot always succeeded
+#      even when boot-time load failed (session 2026-04-04).
+# FAILURE MODE: if b43 refcount is -1 (stuck from prior bad unload sequence),
+#      fix-wifi.sh will print a warning and exit 1 -- check journalctl -u fix-wifi
+After=NetworkManager.service
+Wants=NetworkManager.service
+# Do not run if networking is explicitly disabled
+ConditionPathExists=!/run/NetworkManager/no-auto-default.state
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash %PROJECT_ROOT%/fix-wifi.sh
-User=%USER%
-Group=%GROUP%
-Environment=PROJECT_ROOT=%PROJECT_ROOT%
+# PROJECT_ROOT must match actual repo location
+Environment=FIX_WIFI_WORKSPACE=/home/owner/Documents/1b1059b1-c68a-445a-bbf8-f842a6340696/Broadcom-BCM4331-Forensic-Controller-Unified-v39.8
+ExecStart=/home/owner/Documents/1b1059b1-c68a-445a-bbf8-f842a6340696/Broadcom-BCM4331-Forensic-Controller-Unified-v39.8/fix-wifi.sh
+RemainAfterExit=yes
+# Allow up to 30 seconds for modprobe + interface wait
+TimeoutStartSec=30
 
 [Install]
 WantedBy=multi-user.target
