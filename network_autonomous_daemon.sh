@@ -40,10 +40,27 @@ validate_connectivity_fast() {
   return 1
 }
 
+# WHY: cooldown prevents storm loop where nmcli monitor fires on every NM
+#      state change during recovery (disconnected, connecting, getting IP,
+#      connected) -- each triggering a new recovery attempt.
+#      Confirmed from log: 5 consecutive triggers at 15:52:29 with 0s between.
+#      rm -f LOCK_FILE removed -- fix-wifi.sh manages its own mutex.
+RECOVERY_IN_PROGRESS=0
+LAST_RECOVERY=0
+
 trigger_fast_recovery() {
+  local now
+  now=$(date +%s)
+  local elapsed=$(( now - LAST_RECOVERY ))
+  if [[ "$RECOVERY_IN_PROGRESS" -eq 1 ]] || [[ "$elapsed" -lt 20 ]]; then
+    log "Recovery suppressed (cooldown ${elapsed}s < 20s or in progress)"
+    return 0
+  fi
+  RECOVERY_IN_PROGRESS=1
+  LAST_RECOVERY=$now
   log "DETECTED APPLET / NETWORK CHANGE – Nuclear Recovery in <3s"
-  rm -f "$LOCK_FILE" 2>/dev/null || true
   "$FIX_SCRIPT" || log "Recovery exited with error (logged)"
+  RECOVERY_IN_PROGRESS=0
 }
 
 monitor_network_state() {
