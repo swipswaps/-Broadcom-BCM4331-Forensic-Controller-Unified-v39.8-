@@ -134,7 +134,7 @@ done
 # Firmware in initramfs -- critical: missing here = boot-time ENOENT
 # WHY: confirmed failure mode from session 2026-04-04 -- firmware on disk but
 #      not in initramfs caused error -2 at boot. dracut --force fixed it.
-if sudo lsinitrd 2>/dev/null && true | grep -q "b43/ucode29_mimo.fw"; then
+if sudo lsinitrd 2>/dev/null | grep -q "b43/ucode29_mimo.fw"; then
     check "firmware in initramfs" "pass"
 else
     check "firmware in initramfs" "fail: run sudo dracut --force to rebuild initramfs"
