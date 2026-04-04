@@ -80,20 +80,14 @@ export function startDashboard() {
     showLegend: true
   });
 
-  // --- Row 4-5: Health & PID (3-4) ---
-  const healthGauges = grid.set(4, 0, 2, 4, contrib.gaugeList, {
-    label: ' 🩺 Interface Weights ',
-    gaugeHeight: 2,
-    gaugeSpacing: 1,
-    gauges: [] // Fix: Initialize with empty array to prevent TypeError in blessed-contrib
-  });
-
-  const pidBars = grid.set(4, 4, 2, 4, contrib.bar, {
-    label: ' 🎛️ Interface Throughput (KB/s) ',
-    barWidth: 10,
-    barSpacing: 4,
-    xOffset: 0,
-    maxHeight: 500
+  // --- Row 4-5: Health & Audit (3-4) ---
+  const auditPointsBox = grid.set(4, 0, 2, 8, blessed.box, {
+    label: ' 🛡️ Forensic Audit Status (18 Deterministic Points) ',
+    content: 'Initializing audit points...',
+    tags: true,
+    style: {
+      border: { fg: 'cyan' }
+    }
   });
 
   const nuclearBtn = grid.set(4, 8, 2, 4, blessed.box, {
@@ -135,9 +129,9 @@ export function startDashboard() {
   });
 
   // --- State ---
-  let signalData = { title: 'Signal', x: Array(30).fill(''), y: Array(30).fill(-100) };
-  let rxData = { title: 'RX', x: Array(30).fill(''), y: Array(30).fill(0), style: { line: 'cyan' } };
-  let txData = { title: 'TX', x: Array(30).fill(''), y: Array(30).fill(0), style: { line: 'magenta' } };
+  let signalData = { title: 'Signal', x: Array(30).fill(' '), y: Array(30).fill(-100) };
+  let rxData = { title: 'RX', x: Array(30).fill(' '), y: Array(30).fill(0), style: { line: 'cyan' } };
+  let txData = { title: 'TX', x: Array(30).fill(' '), y: Array(30).fill(0), style: { line: 'magenta' } };
 
   // --- Interaction ---
   screen.key(['q', 'C-c'], () => {
@@ -170,34 +164,53 @@ export function startDashboard() {
     focusable[focusIdx].focus();
   });
 
+  const AUDIT_LABELS: Record<string, string> = {
+    rfkill_soft: 'RF-SOFT',
+    rfkill_hard: 'RF-HARD',
+    pci_bus: 'PCI-BUS',
+    driver_loaded: 'DRIVER',
+    firmware_loaded: 'FIRMWARE',
+    iface_created: 'IFACE',
+    iface_up: 'UP',
+    ip_assigned: 'IP',
+    gw_reachable: 'GW',
+    dns_resolved: 'DNS',
+    signal_stable: 'SIGNAL',
+    tx_power: 'TX-PWR',
+    entropy_pool: 'ENTROPY',
+    wpa_active: 'WPA',
+    nm_active: 'NM',
+    pid_stable: 'PID',
+    mutex_lock: 'MUTEX',
+    bkw_sync: 'BKW'
+  };
+
   async function update() {
     const data = await fetchTelemetry();
     if (!data) return;
 
     // Update Charts
     if (data.signal !== undefined) {
-      signalData.y.shift(); signalData.y.push(data.signal || -100);
+      signalData.y.shift(); signalData.y.push(Number(data.signal) || -100);
     }
-    rxData.y.shift(); rxData.y.push(data.rx || 0);
-    txData.y.shift(); txData.y.push(data.tx || 0);
+    rxData.y.shift(); rxData.y.push(Number(data.rx) || 0);
+    txData.y.shift(); txData.y.push(Number(data.tx) || 0);
     
     signalLine.setData([signalData]);
     trafficLine.setData([rxData, txData]);
 
-    // Update Gauges (Interface Weights)
-    if (healthGauges.ctx && data.interfaces) {
-      healthGauges.setGauges(data.interfaces.map((iface: any) => ({
-        label: iface.name,
-        stack: [{ percent: Math.round(iface.weight * 100), stroke: 'cyan' }]
-      })));
-    }
-
-    // Update Bar Chart (Interface Throughput)
-    if (data.interfaces) {
-      pidBars.setData({
-        titles: data.interfaces.map((iface: any) => iface.name),
-        data: data.interfaces.map((iface: any) => Math.round(iface.rx + iface.tx))
-      });
+    // Update Audit Points
+    if (data.auditPoints) {
+      let auditContent = '';
+      const points = Object.entries(data.auditPoints);
+      for (let i = 0; i < points.length; i++) {
+        const [key, val] = points[i];
+        const label = AUDIT_LABELS[key] || key.toUpperCase();
+        const color = val ? '{green-fg}' : '{red-fg}';
+        auditContent += `${color}${label}{/green-fg}  `;
+        if ((i + 1) % 6 === 0) auditContent += '\n';
+      }
+      auditPointsBox.setContent(auditContent);
     }
 
     // Update Nuclear Button
@@ -212,15 +225,21 @@ export function startDashboard() {
     }
 
     // Update Table (Multi-Interface Load Matrix)
-    if (data.interfaces) {
+    if (data.interfaces && data.interfaces.length > 0) {
       telemetryTable.setData({
         headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
         data: data.interfaces.map((iface: any) => [
-          iface.name,
-          (iface.rx || 0).toFixed(1),
-          (iface.tx || 0).toFixed(1),
-          ((iface.weight || 0) * 100).toFixed(1)
+          String(iface.name),
+          (Number(iface.rx) || 0).toFixed(1),
+          (Number(iface.tx) || 0).toFixed(1),
+          ((Number(iface.weight) || 0) * 100).toFixed(1)
         ])
+      });
+    } else if (data.bkwInterface) {
+      // Fallback if no interfaces array
+      telemetryTable.setData({
+        headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
+        data: [[String(data.bkwInterface), (Number(data.rx) || 0).toFixed(1), (Number(data.tx) || 0).toFixed(1), '100.0']]
       });
     }
 

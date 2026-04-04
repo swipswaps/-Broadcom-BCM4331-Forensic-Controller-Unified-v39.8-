@@ -50,6 +50,7 @@ interface Telemetry {
   lastTick: string;
   interfaces: NetworkInterface[];
   isBenchmarking: boolean;
+  auditPoints: Record<string, boolean>;
 }
 
 interface ForensicEvent {
@@ -311,6 +312,23 @@ export default function App() {
                           <span>REAL-TIME TELEMETRY ACTIVE</span>
                         </div>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Forensic Audit Points */}
+                  <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl">
+                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-8">Forensic Audit Status (18 Deterministic Points)</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                      {Object.entries(telemetry.auditPoints).map(([key, val]) => (
+                        <div key={key} className={`flex items-center gap-2 px-3 py-2 rounded border transition-colors ${
+                          val ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'
+                        }`}>
+                          <div className={`w-1.5 h-1.5 rounded-full ${val ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                          <span className="text-[9px] font-black uppercase tracking-tighter truncate">
+                            {key.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </motion.div>
