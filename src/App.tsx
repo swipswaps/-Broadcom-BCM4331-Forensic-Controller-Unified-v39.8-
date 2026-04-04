@@ -16,8 +16,18 @@ import {
   Cpu,
   Lock,
   Unlock,
-  ChevronRight
+  ChevronRight,
+  Network,
+  BarChart3
 } from 'lucide-react';
+
+interface NetworkInterface {
+  name: string;
+  rx: number;
+  tx: number;
+  weight: number;
+  health: number;
+}
 
 interface Telemetry {
   signal: number;
@@ -38,6 +48,8 @@ interface Telemetry {
   pidPrevError: number;
   gitUpdateAvailable: boolean;
   lastTick: string;
+  interfaces: NetworkInterface[];
+  isBenchmarking: boolean;
 }
 
 interface ForensicEvent {
@@ -57,7 +69,7 @@ interface Forensics {
 export default function App() {
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [forensics, setForensics] = useState<Forensics | null>(null);
-  const [activeTab, setActiveTab] = useState<'telemetry' | 'forensics' | 'evidence' | 'tuning'>('telemetry');
+  const [activeTab, setActiveTab] = useState<'telemetry' | 'forensics' | 'evidence' | 'tuning' | 'loadbalancer'>('telemetry');
   const [pidParams, setPidParams] = useState({ kp: 100, ki: 10, kd: 5 });
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -96,9 +108,18 @@ export default function App() {
     fetchData();
   };
 
+  const triggerBenchmark = async () => {
+    await fetch('/api/benchmark', { method: 'POST' });
+    fetchData();
+  };
+
   const updatePid = async () => {
-    // In a real app, this would POST to /api/tuning
-    console.log('Updating PID params:', pidParams);
+    await fetch('/api/pid/tune', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pidParams)
+    });
+    fetchData();
   };
 
   if (!telemetry) return (
@@ -176,6 +197,7 @@ export default function App() {
           <nav className="lg:col-span-2 flex lg:flex-col gap-2 overflow-x-auto pb-4 lg:pb-0">
             {[
               { id: 'telemetry', icon: Activity, label: 'Telemetry' },
+              { id: 'loadbalancer', icon: Network, label: 'Balancer' },
               { id: 'forensics', icon: Terminal, label: 'Verbatim' },
               { id: 'evidence', icon: Search, label: 'Evidence' },
               { id: 'tuning', icon: Sliders, label: 'Tuning' }
@@ -276,16 +298,87 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                </motion.div>
+              )}
 
-                  {/* PID Controller State */}
+              {activeTab === 'loadbalancer' && (
+                <motion.div 
+                  key="loadbalancer"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-8"
+                >
+                  <div className="flex justify-between items-center bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+                    <div>
+                      <h3 className="text-lg font-black text-white flex items-center gap-2">
+                        <Network className="text-emerald-400" /> Multi-Interface Load Balancer
+                      </h3>
+                      <p className="text-xs text-slate-500">PID-optimized traffic distribution across forensic probes.</p>
+                    </div>
+                    <button 
+                      onClick={triggerBenchmark}
+                      disabled={telemetry.isBenchmarking}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all ${
+                        telemetry.isBenchmarking 
+                          ? 'bg-amber-500/20 text-amber-500 cursor-wait' 
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      }`}
+                    >
+                      <BarChart3 size={14} />
+                      {telemetry.isBenchmarking ? 'SNIFFING...' : 'RUN BENCHMARK'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {telemetry.interfaces.map((iface) => (
+                      <div key={iface.name} className="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+                        <div className="flex justify-between items-start mb-6">
+                          <div>
+                            <h4 className="text-sm font-black text-white uppercase tracking-wider">{iface.name}</h4>
+                            <span className="text-[10px] text-slate-500 font-bold">FORENSIC PROBE</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-black text-emerald-400">{(iface.weight * 100).toFixed(1)}%</span>
+                            <p className="text-[9px] text-slate-600 font-bold uppercase">Load Weight</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex justify-between text-[10px] font-bold">
+                            <span className="text-slate-500 uppercase">Throughput</span>
+                            <span className="text-slate-300">{(iface.rx + iface.tx).toFixed(1)} KB/s</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <motion.div 
+                              className="h-full bg-emerald-500"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${iface.weight * 100}%` }}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div className="bg-slate-950/50 p-2 rounded border border-slate-800/50">
+                              <span className="text-[8px] text-slate-600 uppercase block">RX RATE</span>
+                              <span className="text-xs font-bold text-slate-300">{iface.rx.toFixed(1)}</span>
+                            </div>
+                            <div className="bg-slate-950/50 p-2 rounded border border-slate-800/50">
+                              <span className="text-[8px] text-slate-600 uppercase block">TX RATE</span>
+                              <span className="text-xs font-bold text-slate-300">{iface.tx.toFixed(1)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="bg-slate-900/20 border border-slate-800/50 p-6 rounded-2xl">
-                    <h3 className="text-xs font-black text-slate-600 uppercase tracking-[0.2em] mb-6">PID Controller Signals</h3>
+                    <h3 className="text-xs font-black text-slate-600 uppercase tracking-[0.2em] mb-6">PID Tuning Signals</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {[
-                        { label: 'Kp Signal', value: telemetry.pidKp, color: 'text-blue-400' },
-                        { label: 'Ki Integral', value: telemetry.pidKi, color: 'text-purple-400' },
-                        { label: 'Kd Derivative', value: telemetry.pidKd, color: 'text-orange-400' },
-                        { label: 'Net Output', value: telemetry.pidOut, color: 'text-white' }
+                        { label: 'Kp (Proportional)', value: telemetry.pidKp, color: 'text-blue-400' },
+                        { label: 'Ki (Integral)', value: telemetry.pidKi, color: 'text-purple-400' },
+                        { label: 'Kd (Derivative)', value: telemetry.pidKd, color: 'text-orange-400' },
+                        { label: 'Total I-Error', value: telemetry.pidIError.toFixed(0), color: 'text-slate-400' }
                       ].map((sig) => (
                         <div key={sig.label} className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl">
                           <p className="text-[9px] text-slate-500 font-bold mb-1 uppercase">{sig.label}</p>

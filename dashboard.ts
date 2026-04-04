@@ -35,18 +35,18 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
 
   // --- Row 4-5: Health & PID (3-4) ---
   const healthGauges = grid.set(4, 0, 2, 4, contrib.gaugeList, {
-    label: ' 🩺 Health Components ',
+    label: ' 🩺 Interface Weights ',
     gaugeHeight: 2,
     gaugeSpacing: 1,
     gauges: [] // Fix: Initialize with empty array to prevent TypeError in blessed-contrib
   });
 
   const pidBars = grid.set(4, 4, 2, 4, contrib.bar, {
-    label: ' 🎛️ PID Controller Signals ',
-    barWidth: 8,
+    label: ' 🎛️ Interface Throughput (KB/s) ',
+    barWidth: 10,
     barSpacing: 4,
-    xOffset: 2,
-    maxHeight: 1000
+    xOffset: 0,
+    maxHeight: 500
   });
 
   const nuclearBtn = grid.set(4, 8, 2, 4, blessed.box, {
@@ -79,7 +79,7 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     selectedFg: 'white',
     selectedBg: 'blue',
     interactive: true,
-    label: ' 📊 Full Telemetry Matrix [Tab to focus, Arrows to scroll] ',
+    label: ' 📊 Multi-Interface Load Matrix ',
     width: '100%',
     height: '100%',
     border: { type: "line", fg: "cyan" },
@@ -126,21 +126,21 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     signalLine.setData([signalData]);
     trafficLine.setData([rxData, txData]);
 
-    // Update Gauges
-    if (healthGauges.ctx) {
-      healthGauges.setGauges([
-        { label: 'Ping', stack: [{ percent: Math.max(2, data.healthPing || 0), stroke: 'cyan' }] },
-        { label: 'DNS', stack: [{ percent: Math.max(2, data.healthDns || 0), stroke: 'magenta' }] },
-        { label: 'Route', stack: [{ percent: Math.max(2, data.healthRoute || 0), stroke: 'yellow' }] },
-        { label: 'Overall', stack: [{ percent: Math.max(2, data.health || 0), stroke: 'green' }] }
-      ]);
+    // Update Gauges (Interface Weights)
+    if (healthGauges.ctx && data.interfaces) {
+      healthGauges.setGauges(data.interfaces.map((iface: any) => ({
+        label: iface.name,
+        stack: [{ percent: Math.round(iface.weight * 100), stroke: 'cyan' }]
+      })));
     }
 
-    // Update PID
-    pidBars.setData({
-      titles: ['Kp', 'Ki', 'Kd', 'Out'],
-      data: [data.pidKp || 0, data.pidKi || 0, data.pidKd || 0, data.pidOut || 0]
-    });
+    // Update Bar Chart (Interface Throughput)
+    if (data.interfaces) {
+      pidBars.setData({
+        titles: data.interfaces.map((iface: any) => iface.name),
+        data: data.interfaces.map((iface: any) => Math.round(iface.rx + iface.tx))
+      });
+    }
 
     // Update Nuclear Button
     if (data.isFixing) {
@@ -153,18 +153,18 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
       nuclearBtn.setContent('\n   [ PRESS N ]\n   TRIGGER HANDSHAKE');
     }
 
-    // Update Table (17 Data Points)
-    const tableData = [
-      ['Signal', `${data.signal} dBm`, 'Health', `${data.health}/100`],
-      ['Connectivity', data.connectivity ? 'ONLINE' : 'DEAD', 'Interface', data.bkwInterface],
-      ['RX Rate', `${data.rx || 0} KB/s`, 'TX Rate', `${data.tx || 0} KB/s`],
-      ['PID Kp', data.pidKp, 'PID Ki', data.pidKi],
-      ['PID Kd', data.pidKd, 'PID Out', data.pidOut],
-      ['I_Error', data.pidIError, 'Prev_Error', data.pidPrevError],
-      ['Git Update', data.gitUpdateAvailable ? 'YES' : 'NO', 'Last Tick', data.lastTick.split('T')[1].split('.')[0]],
-      ['Audit Points', '17/17', 'Forensic Mode', 'Unified v39.8']
-    ];
-    telemetryTable.setData({ headers: ['Metric', 'Value', 'Metric', 'Value'], data: tableData });
+    // Update Table (Multi-Interface Load Matrix)
+    if (data.interfaces) {
+      telemetryTable.setData({
+        headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
+        data: data.interfaces.map((iface: any) => [
+          iface.name,
+          (iface.rx || 0).toFixed(1),
+          (iface.tx || 0).toFixed(1),
+          ((iface.weight || 0) * 100).toFixed(1)
+        ])
+      });
+    }
 
     screen.render();
   }

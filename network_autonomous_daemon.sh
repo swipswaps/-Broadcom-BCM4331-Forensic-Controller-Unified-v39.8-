@@ -28,9 +28,14 @@ LAST_DNS_REPAIR=0
 [[ -f "$DB_SCRIPT" ]] && source "$DB_SCRIPT" || echo "[WARN] DB script not found at $DB_SCRIPT"
 
 # -----------------------------------------------------------------------------
-# LOGGING
+# LOGGING & ROTATION
 # -----------------------------------------------------------------------------
 log() {
+  # Rotate log if > 10MB
+  if [[ -f "$LOG_FILE" ]] && [[ $(stat -c%s "$LOG_FILE") -gt 10485760 ]]; then
+    mv "$LOG_FILE" "${LOG_FILE}.old"
+    touch "$LOG_FILE"
+  fi
   echo "$(date -Iseconds) $LOG_TAG $1" >> "$LOG_FILE"
 }
 

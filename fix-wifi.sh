@@ -66,9 +66,20 @@ hardware_handshake() {
 # [AUDIT POINT 11] Interface Discovery
 discover_interface() {
     local iface
-    iface=$(nmcli -t -f DEVICE dev | grep -E "^w" | head -n1 || true)
+    # Try nmcli first (structured)
+    iface=$(nmcli -t -f DEVICE dev 2>/dev/null | grep -E "^w" | head -n1 || true)
+    
+    # Fallback to sysfs
     if [[ -z "$iface" ]]; then
-        log_event "ERROR" "No wireless interface discovered."
+        iface=$(ls /sys/class/net | grep -E "^w" | head -n1 || true)
+    fi
+
+    # Fallback to /proc/net/dev
+    if [[ -z "$iface" ]]; then
+        iface=$(awk -F: '/^ *w/ {print $1}' /proc/net/dev | head -n1 | xargs || true)
+    fi
+
+    if [[ -z "$iface" ]]; then
         return 1
     fi
     echo "$iface"
@@ -110,8 +121,14 @@ calculate_pid() {
 # [AUDIT POINT 15] Forensic Snapshot
 take_snapshot() {
     local iface="$1"
-    local signal
-    signal=$(iwconfig "$iface" 2>/dev/null | grep "Signal level" | cut -d'=' -f3 | cut -d' ' -f1 || echo "-100")
+    local signal="-100"
+    
+    if command -v iwconfig >/dev/null 2>&1; then
+        signal=$(iwconfig "$iface" 2>/dev/null | grep "Signal level" | cut -d'=' -f3 | cut -d' ' -f1 || echo "-100")
+    elif command -v iw >/dev/null 2>&1; then
+        signal=$(iw dev "$iface" link 2>/dev/null | grep "signal:" | awk '{print $2}' || echo "-100")
+    fi
+    
     log_event "TELEMETRY" "Signal: $signal dBm on $iface"
 }
 
@@ -121,18 +138,30 @@ run_forensics() {
     log_event "START" "Forensic Engine v39.8 initiated (Mode: $mode)."
     
     local iface
-    iface=$(discover_interface) || exit 1
+    iface=$(discover_interface) || true
     
-    take_snapshot "$iface"
+    if [[ -z "$iface" ]]; then
+        log_event "ERROR" "No wireless interface discovered initially."
+        if [[ "$mode" == "snapshot-only" ]]; then
+            log_event "FINISH" "Snapshot aborted (No interface)."
+            return 1
+        fi
+    else
+        take_snapshot "$iface"
+    fi
     
     if [[ "$mode" == "snapshot-only" ]]; then
         log_event "FINISH" "Snapshot complete."
         return 0
     fi
     
-    if ! validate_connectivity; then
+    # In full mode, if no interface OR no connectivity, try hardware handshake
+    if [[ -z "$iface" ]] || ! validate_connectivity; then
         hardware_handshake
-        iface=$(discover_interface) || exit 1
+        iface=$(discover_interface) || {
+            log_event "ERROR" "No wireless interface discovered after handshake."
+            exit 1
+        }
         save_bkw "$iface"
     fi
     

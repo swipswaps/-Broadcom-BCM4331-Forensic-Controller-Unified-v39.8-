@@ -33,8 +33,96 @@ async function startServer() {
     pidIError: 50,
     pidPrevError: -5,
     gitUpdateAvailable: false,
-    lastTick: new Date().toISOString()
+    lastTick: new Date().toISOString(),
+    // Multi-interface load balancing state
+    interfaces: [
+      { name: 'wlp2s0b1', rx: 124.5, tx: 45.2, weight: 1.0, health: 100 },
+      { name: 'wlp3s0', rx: 0, tx: 0, weight: 0.0, health: 0 }
+    ],
+    isBenchmarking: false
   };
+
+  // --- PID Load Balancer Logic ---
+  function updateLoadBalancing() {
+    const targetThroughput = 500; // KB/s target for the "ideal" interface
+    
+    currentTelemetry.interfaces.forEach((iface, idx) => {
+      const currentThroughput = iface.rx + iface.tx;
+      const error = targetThroughput - currentThroughput;
+      
+      // Basic PID-like weight adjustment
+      // Higher error (less throughput) means we want to increase weight
+      // Lower error (more throughput) means we want to decrease weight
+      const p = currentTelemetry.pidKp / 1000 * error;
+      const i = currentTelemetry.pidKi / 1000 * (currentTelemetry.pidIError + error);
+      const d = currentTelemetry.pidKd / 1000 * (error - currentTelemetry.pidPrevError);
+      
+      const adjustment = p + i + d;
+      iface.weight = Math.max(0, Math.min(1, iface.weight + adjustment / 1000));
+      
+      // Update PID state for next tick
+      currentTelemetry.pidIError += error;
+      currentTelemetry.pidPrevError = error;
+    });
+    
+    // Normalize weights
+    const totalWeight = currentTelemetry.interfaces.reduce((sum, iface) => sum + iface.weight, 0);
+    if (totalWeight > 0) {
+      currentTelemetry.interfaces.forEach(iface => iface.weight /= totalWeight);
+    }
+  }
+
+  // --- API: Benchmark ---
+  app.post('/api/benchmark', (req, res) => {
+    if (currentTelemetry.isBenchmarking) return res.status(409).json({ error: 'Busy' });
+    currentTelemetry.isBenchmarking = true;
+    console.log('[SERVER] NETWORK BENCHMARK TRIGGERED');
+    
+    const benchProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'network_sniff_bench.sh')]);
+    let output = '';
+    
+    benchProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    benchProcess.on('close', (code) => {
+      currentTelemetry.isBenchmarking = false;
+      if (code === 0) {
+        // Parse output: iface1:rx:tx,iface2:rx:tx
+        const parts = output.trim().split(',');
+        const newInterfaces = parts.map(p => {
+          const [name, rx, tx] = p.split(':');
+          return {
+            name,
+            rx: parseFloat(rx) || 0,
+            tx: parseFloat(tx) || 0,
+            weight: 0.5, // Reset weight for re-balancing
+            health: 100
+          };
+        });
+        
+        if (newInterfaces.length > 0) {
+          currentTelemetry.interfaces = newInterfaces;
+          updateLoadBalancing();
+        }
+        
+        if (dashboard) dashboard.log(`[BENCH] Completed with ${newInterfaces.length} interfaces.`);
+      } else {
+        if (dashboard) dashboard.log(`[BENCH] Failed with code ${code}`);
+      }
+    });
+
+    res.json({ status: 'initiated' });
+  });
+
+  // --- API: PID Tune ---
+  app.post('/api/pid/tune', (req, res) => {
+    const { kp, ki, kd } = req.body;
+    if (kp !== undefined) currentTelemetry.pidKp = kp;
+    if (ki !== undefined) currentTelemetry.pidKi = ki;
+    if (kd !== undefined) currentTelemetry.pidKd = kd;
+    res.json({ status: 'updated', pid: { kp: currentTelemetry.pidKp, ki: currentTelemetry.pidKi, kd: currentTelemetry.pidKd } });
+  });
 
   // --- Helper: Kill Port Occupant ---
   function killPortOccupant(port: number) {
@@ -114,8 +202,8 @@ async function startServer() {
   let dashboard: any = null;
 
   // --- API: Fix ---
-  app.post('/api/fix', (req, res) => {
-    if (currentTelemetry.isFixing) return res.status(409).json({ error: 'Busy' });
+  const triggerRecovery = () => {
+    if (currentTelemetry.isFixing) return;
     currentTelemetry.isFixing = true;
     console.log('[SERVER] NUCLEAR RECOVERY TRIGGERED');
     
@@ -133,7 +221,11 @@ async function startServer() {
       currentTelemetry.isFixing = false;
       if (dashboard) dashboard.log(`[FIX] Sequence complete with code ${code}`);
     });
+  };
 
+  app.post('/api/fix', (req, res) => {
+    if (currentTelemetry.isFixing) return res.status(409).json({ error: 'Busy' });
+    triggerRecovery();
     res.json({ status: 'initiated' });
   });
 
@@ -169,9 +261,8 @@ async function startServer() {
     dashboard = startDashboard(
       () => currentTelemetry,
       () => {
-        // Trigger fix logic
-        currentTelemetry.isFixing = true;
-        setTimeout(() => currentTelemetry.isFixing = false, 5000);
+        // Trigger real recovery
+        triggerRecovery();
       }
     );
 
