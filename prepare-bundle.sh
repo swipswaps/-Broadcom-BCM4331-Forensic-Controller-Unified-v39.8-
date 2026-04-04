@@ -33,6 +33,16 @@ REQUIRED_FW=("ucode29_mimo.fw" "ht0initvals29.fw" "ht0bsinitvals29.fw")
 
 echo "[BUNDLE] BCM4331 firmware preparation starting"
 
+# Check for firmware committed in repo first (fastest, no network required)
+REPO_FW="$(cd "$(dirname "$0")" && pwd)/firmware/b43"
+if [[ -d "$REPO_FW" ]] && ls "$REPO_FW"/*.fw >/dev/null 2>&1; then
+    echo "[BUNDLE] Installing firmware from repo (no network required)."
+    sudo mkdir -p "$FIRMWARE_DIR"
+    sudo cp "$REPO_FW"/*.fw "$FIRMWARE_DIR"/
+    sudo chmod 644 "$FIRMWARE_DIR"/*.fw
+    echo "[BUNDLE] Firmware installed from repo."
+fi
+
 # ── Check if firmware already present and complete ──────────────────────────
 firmware_complete() {
     for fw in "${REQUIRED_FW[@]}"; do
