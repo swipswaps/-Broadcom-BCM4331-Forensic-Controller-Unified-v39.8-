@@ -5,13 +5,30 @@ import fs from 'fs';
 import path from 'path';
 
 export function startDashboard(getTelemetry: () => any, triggerFix: () => void) {
-  const screen = blessed.screen({
-    smartCSR: true,
-    title: '🛰️ BCM4331 Forensic Controller (Unified v39.8)',
-    dockBorders: true,
-    fullUnicode: true,
-    mouse: true
-  });
+  const WORKSPACE_DIR = process.env.PROJECT_ROOT || process.cwd();
+  const LOG_FILE = path.join(WORKSPACE_DIR, 'verbatim_handshake.log');
+  
+  const logToFile = (msg: string) => {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(LOG_FILE, `[${timestamp}] [DASH] ${msg}\n`);
+  };
+
+  logToFile('Initializing dashboard...');
+
+  let screen;
+  try {
+    screen = blessed.screen({
+      smartCSR: true,
+      title: '🛰️ BCM4331 Forensic Controller (Unified v39.8)',
+      dockBorders: true,
+      fullUnicode: true,
+      mouse: true
+    });
+    logToFile('Screen created successfully.');
+  } catch (e: any) {
+    logToFile(`CRITICAL: Failed to create blessed screen: ${e.message}`);
+    throw e;
+  }
 
   const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
 
@@ -99,12 +116,20 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     process.exit(0);
   });
 
+  screen.on('keypress', (ch, key) => {
+    if (key) {
+      logToFile(`Key pressed: ${key.name} (full: ${JSON.stringify(key)})`);
+    }
+  });
+
   screen.key(['n'], () => {
+    logToFile('Handshake requested via key [N]');
     if (forensicLog) forensicLog.log('[DASH] Handshake requested via key [N]');
     triggerFix();
   });
 
   nuclearBtn.on('click', () => {
+    logToFile('Handshake requested via click on Nuclear Recovery');
     triggerFix();
   });
 

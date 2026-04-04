@@ -51,16 +51,16 @@ hardware_handshake() {
     
     # [AUDIT POINT 8] RFKill Audit
     log_event "RFKILL" "Unblocking all wireless devices."
-    sudo rfkill unblock all || log_event "ERROR" "rfkill failed."
+    rfkill unblock all || log_event "ERROR" "rfkill failed."
 
     # [AUDIT POINT 9] Module Reload (The "Nuclear" Button)
     log_event "MODULE" "Reloading BCM4331 driver (brcmsmac/bcma)."
-    sudo modprobe -r brcmsmac bcma || true
-    sudo modprobe brcmsmac || log_event "ERROR" "modprobe failed."
+    modprobe -r brcmsmac bcma || true
+    modprobe brcmsmac || log_event "ERROR" "modprobe failed."
 
     # [AUDIT POINT 10] NetworkManager Force-On
     log_event "NMCLI" "Forcing NetworkManager global networking ON."
-    sudo nmcli networking on || true
+    nmcli networking on || true
 }
 
 # [AUDIT POINT 11] Interface Discovery
@@ -105,7 +105,7 @@ audit_dns() {
     else
         log_event "DNS" "DNS Resolution FAILED. Injecting fallbacks."
         # Non-invasive fallback
-        echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf >/dev/null
+        echo "nameserver 1.1.1.1" | tee /etc/resolv.conf >/dev/null
     fi
 }
 
@@ -134,7 +134,9 @@ take_snapshot() {
 
 # [AUDIT POINT 16] Main Execution
 run_forensics() {
-    local mode="${1:-full}"
+    local mode_raw="${1:-full}"
+    # Strip leading dashes if present
+    local mode="${mode_raw#--}"
     log_event "START" "Forensic Engine v39.8 initiated (Mode: $mode)."
     
     local iface

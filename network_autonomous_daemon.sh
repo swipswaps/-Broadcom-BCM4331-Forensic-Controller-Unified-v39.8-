@@ -90,7 +90,7 @@ repair_dns() {
   nmcli con reload || true
   
   # Restart NetworkManager to ensure propagation
-  sudo systemctl restart NetworkManager || true
+  systemctl restart NetworkManager || true
 }
 
 # -----------------------------------------------------------------------------

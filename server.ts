@@ -1,5 +1,5 @@
 import express from 'express';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -275,7 +275,31 @@ async function startServer() {
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[SERVER] Listening on port ${PORT}`);
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] UID: ${process.getuid()}, EUID: ${process.geteuid()}\n`);
+    fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] PATH: ${process.env.PATH}\n`);
     
+    // Run system integration
+    try {
+      console.log('[SERVER] Running system integration...');
+      const setup = spawnSync('bash', [path.join(WORKSPACE_DIR, 'setup-system.sh')], {
+        encoding: 'utf8'
+      });
+      if (setup.error) {
+        const msg = `[SERVER] Setup failed: ${setup.error}`;
+        console.error(msg);
+        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+      } else {
+        const msg = `[SERVER] Setup complete. Output: ${setup.stdout}`;
+        console.log(msg);
+        fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Setup complete.\n`);
+        if (setup.stderr) {
+          fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Setup stderr: ${setup.stderr}\n`);
+        }
+      }
+    } catch (err) {
+      console.error('[SERVER] System integration error:', err);
+    }
+
     // Start Autonomous Daemon in background
     const daemon = spawn('bash', [path.join(WORKSPACE_DIR, 'network_autonomous_daemon.sh')], {
       detached: true,
@@ -285,22 +309,43 @@ async function startServer() {
     console.log('[SERVER] Autonomous Daemon started in background.');
 
     // Start Terminal Dashboard
-    dashboard = startDashboard(
-      () => currentTelemetry,
-      () => {
-        // Trigger real recovery
-        triggerRecovery();
+    try {
+      if (!process.env.TERM) {
+        process.env.TERM = 'xterm-256color';
       }
-    );
+      dashboard = startDashboard(
+        () => currentTelemetry,
+        () => {
+          // Trigger real recovery
+          triggerRecovery();
+        }
+      );
+    } catch (e: any) {
+      console.error('[SERVER] Dashboard failed to start:', e.message);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Dashboard failed: ${e.message}\n`);
+    }
 
     // Handle clean exit
     const cleanExit = () => {
-      dashboard.screen.destroy();
+      if (dashboard && dashboard.screen) {
+        dashboard.screen.destroy();
+      }
       process.exit(0);
     };
 
     process.on('SIGINT', cleanExit);
     process.on('SIGTERM', cleanExit);
+
+    process.on('uncaughtException', (err) => {
+      console.error('[SERVER] Uncaught Exception:', err);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] CRASH: ${err.message}\n`);
+      cleanExit();
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('[SERVER] Unhandled Rejection at:', promise, 'reason:', reason);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] REJECTION: ${reason}\n`);
+    });
   });
 }
 
