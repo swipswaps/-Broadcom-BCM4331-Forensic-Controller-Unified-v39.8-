@@ -33,7 +33,15 @@ discover_interfaces() {
     fi
     
     # Combine and unique
-    echo -e "${ifaces_nm}\n${ifaces_ip}" | sort -u | grep -v "^$" || true
+    local combined
+    combined=$(echo -e "${ifaces_nm}\n${ifaces_ip}")
+    
+    # Fallback to /proc/net/dev if nothing found
+    if [[ -z "$(echo "$combined" | grep -v "^$" || true)" ]]; then
+        combined=$(awk -F: '/^ *[a-z0-9]+:/ {print $1}' /proc/net/dev | sed 's/ //g' | grep -v "lo" || true)
+    fi
+    
+    echo "$combined" | sort -u | grep -v "^$" || true
 }
 
 sniff_interface() {
@@ -50,23 +58,34 @@ sniff_interface() {
     
     # Get initial stats from /proc/net/dev for baseline
     local start_rx start_tx end_rx end_tx
-    start_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}')
-    start_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}')
+    start_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}' || echo "0")
+    start_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}' || echo "0")
+    
+    log_event "DEBUG" "Interface $iface start_rx: $start_rx, start_tx: $start_tx"
     
     # Run a dummy tcpdump to "sniff" and show forensic activity
     # We use -c 1 to just confirm it's working, or timeout
-    sudo timeout "$duration" tcpdump -i "$iface" -c 10 >/dev/null 2>&1 || true
+    if command -v tcpdump >/dev/null 2>&1; then
+        timeout "$duration" tcpdump -i "$iface" -c 10 >/dev/null 2>&1 || true
+    else
+        log_event "WARN" "tcpdump not found, skipping live sniff."
+        sleep "$duration"
+    fi
     
     # Get final stats
-    end_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}')
-    end_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}')
+    end_rx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $1}' || echo "0")
+    end_tx=$(grep "^ *$iface:" /proc/net/dev | awk -F: '{print $2}' | awk '{print $9}' || echo "0")
+    
+    log_event "DEBUG" "Interface $iface end_rx: $end_rx, end_tx: $end_tx"
     
     local diff_rx=$((end_rx - start_rx))
     local diff_tx=$((end_tx - start_tx))
     
-    # Calculate KB/s
-    local rx_kbps=$(echo "scale=2; $diff_rx / 1024 / $duration" | bc)
-    local tx_kbps=$(echo "scale=2; $diff_tx / 1024 / $duration" | bc)
+    # Calculate KB/s using awk (more robust than bc)
+    local rx_kbps=$(awk "BEGIN {print $diff_rx / 1024 / $duration}" || echo "0")
+    local tx_kbps=$(awk "BEGIN {print $diff_tx / 1024 / $duration}" || echo "0")
+    
+    log_event "DEBUG" "Interface $iface rx_kbps: $rx_kbps, tx_kbps: $tx_kbps"
     
     echo "$iface:$rx_kbps:$tx_kbps"
 }

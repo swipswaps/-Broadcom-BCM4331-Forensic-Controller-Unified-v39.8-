@@ -34,11 +34,19 @@ EOF
 )
 
 if [[ "$EUID" -eq 0 ]]; then
-    echo "$SUDOERS_CONTENT" > "$SUDOERS_FILE"
-    chmod 440 "$SUDOERS_FILE"
+    mkdir -p /etc/sudoers.d || echo "[WARN] Could not create /etc/sudoers.d"
+    if [[ -d /etc/sudoers.d ]]; then
+        echo "$SUDOERS_CONTENT" > "$SUDOERS_FILE"
+        chmod 440 "$SUDOERS_FILE"
+    fi
 else
-    echo "$SUDOERS_CONTENT" | sudo tee "$SUDOERS_FILE" > /dev/null
-    sudo chmod 440 "$SUDOERS_FILE"
+    if command -v sudo >/dev/null 2>&1; then
+        sudo mkdir -p /etc/sudoers.d || true
+        echo "$SUDOERS_CONTENT" | sudo tee "$SUDOERS_FILE" > /dev/null
+        sudo chmod 440 "$SUDOERS_FILE"
+    else
+        echo "[WARN] sudo not found, skipping sudoers generation."
+    fi
 fi
 
 # 3. Initialize Database

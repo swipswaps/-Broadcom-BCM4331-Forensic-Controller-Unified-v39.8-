@@ -1,10 +1,27 @@
 import blessed from 'blessed';
 import contrib from 'blessed-contrib';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-export function startDashboard(getTelemetry: () => any, triggerFix: () => void) {
+// Use dynamic import for fetch to avoid issues in some environments
+const fetchTelemetry = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/api/status');
+    return await response.json();
+  } catch (e) {
+    return null;
+  }
+};
+
+const triggerFixViaApi = async () => {
+  try {
+    await fetch('http://localhost:3000/api/fix', { method: 'POST' });
+  } catch (e) {
+    // Ignore
+  }
+};
+
+export function startDashboard() {
   const WORKSPACE_DIR = process.env.PROJECT_ROOT || process.cwd();
   const LOG_FILE = path.join(WORKSPACE_DIR, 'verbatim_handshake.log');
   
@@ -15,8 +32,20 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
 
   logToFile('Initializing dashboard...');
 
-  let screen;
+  let screen: any;
   try {
+    // Check if we have a TTY
+    if (!process.stdout.isTTY) {
+      logToFile('No TTY detected. Dashboard will run in headless mode (logging only).');
+      setInterval(async () => {
+        const data = await fetchTelemetry();
+        if (data) {
+          logToFile(`TELEMETRY: Health=${data.health}, RX=${data.rx.toFixed(2)}, TX=${data.tx.toFixed(2)}`);
+        }
+      }, 5000);
+      return;
+    }
+
     screen = blessed.screen({
       smartCSR: true,
       title: '🛰️ BCM4331 Forensic Controller (Unified v39.8)',
@@ -27,10 +56,10 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     logToFile('Screen created successfully.');
   } catch (e: any) {
     logToFile(`CRITICAL: Failed to create blessed screen: ${e.message}`);
-    throw e;
+    return;
   }
 
-  const grid = new contrib.grid({ rows: 12, cols: 12, screen: screen });
+  const grid = new (contrib as any).grid({ rows: 12, cols: 12, screen: screen });
 
   // --- Row 0-3: Charts (1-2) ---
   const signalLine = grid.set(0, 0, 4, 6, contrib.line, {
@@ -125,12 +154,12 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
   screen.key(['n'], () => {
     logToFile('Handshake requested via key [N]');
     if (forensicLog) forensicLog.log('[DASH] Handshake requested via key [N]');
-    triggerFix();
+    triggerFixViaApi();
   });
 
   nuclearBtn.on('click', () => {
     logToFile('Handshake requested via click on Nuclear Recovery');
-    triggerFix();
+    triggerFixViaApi();
   });
 
   // Focus cycling
@@ -141,8 +170,8 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     focusable[focusIdx].focus();
   });
 
-  function update() {
-    const data = getTelemetry();
+  async function update() {
+    const data = await fetchTelemetry();
     if (!data) return;
 
     // Update Charts
@@ -206,3 +235,6 @@ export function startDashboard(getTelemetry: () => any, triggerFix: () => void) 
     screen
   };
 }
+
+// Start the dashboard
+startDashboard();

@@ -156,7 +156,7 @@ main_loop() {
     fi
 
     # 2. Forensic Snapshot
-    bash "${REPO_DIR}/fix-wifi.sh" --snapshot-only 2>/dev/null || true
+    bash "${REPO_DIR}/fix-wifi.sh" --snapshot-only || true
 
     sleep "$SLEEP_INTERVAL"
   done

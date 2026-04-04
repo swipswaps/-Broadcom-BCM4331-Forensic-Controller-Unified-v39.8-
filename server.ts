@@ -3,7 +3,6 @@ import { execSync, spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { startDashboard } from './dashboard';
 
 async function startServer() {
   const app = express();
@@ -22,10 +21,10 @@ async function startServer() {
     healthDns: 30,
     healthRoute: 30,
     connectivity: true,
-    bkwInterface: 'wlp2s0b1',
+    bkwInterface: 'eth1',
     isFixing: false,
-    rx: 124.5,
-    tx: 45.2,
+    rx: 0,
+    tx: 0,
     pidKp: 100,
     pidKi: 10,
     pidKd: 5,
@@ -41,9 +40,19 @@ async function startServer() {
 
   // Initial interface discovery
   try {
-    const ifaces = execSync('nmcli -t -f DEVICE dev | grep -v "lo"', { encoding: 'utf8' })
-      .split('\n')
-      .filter(Boolean);
+    // Prioritize /proc/net/dev for throughput tracking
+    const procNetDev = fs.readFileSync('/proc/net/dev', 'utf8');
+    let ifaces = procNetDev.split('\n')
+      .filter(line => line.includes(':'))
+      .map(line => line.split(':')[0].trim())
+      .filter(name => name !== 'lo');
+
+    if (ifaces.length === 0) {
+      console.log('[SERVER] /proc/net/dev returned no interfaces, falling back to nmcli');
+      const nmcliOutput = execSync('nmcli -t -f DEVICE dev | grep -v "lo"', { encoding: 'utf8' });
+      ifaces = nmcliOutput.split('\n').filter(Boolean);
+    }
+
     currentTelemetry.interfaces = ifaces.map(name => ({
       name,
       rx: 0,
@@ -54,7 +63,8 @@ async function startServer() {
     if (ifaces.length > 0) currentTelemetry.bkwInterface = ifaces[0];
   } catch (e) {
     console.error('[SERVER] Failed to discover interfaces on startup:', e);
-    currentTelemetry.interfaces = [{ name: 'wlp2s0b1', rx: 0, tx: 0, weight: 1.0, health: 100 }];
+    currentTelemetry.interfaces = [{ name: 'eth1', rx: 0, tx: 0, weight: 1.0, health: 100 }];
+    currentTelemetry.bkwInterface = 'eth1';
   }
 
   // --- PID Load Balancer Logic ---
@@ -88,10 +98,9 @@ async function startServer() {
   }
 
   // --- API: Benchmark ---
-  app.post('/api/benchmark', (req, res) => {
-    if (currentTelemetry.isBenchmarking) return res.status(409).json({ error: 'Busy' });
+  const runBenchmark = () => {
+    if (currentTelemetry.isBenchmarking) return;
     currentTelemetry.isBenchmarking = true;
-    console.log('[SERVER] NETWORK BENCHMARK TRIGGERED');
     
     const benchProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'network_sniff_bench.sh')]);
     let output = '';
@@ -102,35 +111,50 @@ async function startServer() {
 
     benchProcess.on('close', (code) => {
       currentTelemetry.isBenchmarking = false;
-      console.log(`[SERVER] Benchmark process closed with code ${code}. Output: "${output.trim()}"`);
       if (code === 0) {
-        // Parse output: iface1:rx:tx,iface2:rx:tx
         const parts = output.trim().split(',').filter(Boolean);
+        let totalRx = 0;
+        let totalTx = 0;
+        
         const newInterfaces = parts.map(p => {
           const [name, rx, tx] = p.split(':');
           if (!name) return null;
+          const rxVal = parseFloat(rx) || 0;
+          const txVal = parseFloat(tx) || 0;
+          totalRx += rxVal;
+          totalTx += txVal;
           return {
             name,
-            rx: parseFloat(rx) || 0,
-            tx: parseFloat(tx) || 0,
-            weight: 0.5, // Reset weight for re-balancing
+            rx: rxVal,
+            tx: txVal,
+            weight: 0.5,
             health: 100
           };
         }).filter(Boolean) as any[];
         
         if (newInterfaces.length > 0) {
           currentTelemetry.interfaces = newInterfaces;
+          currentTelemetry.rx = totalRx;
+          currentTelemetry.tx = totalTx;
           updateLoadBalancing();
         }
         
-        if (dashboard) dashboard.log(`[BENCH] Completed with ${newInterfaces.length} interfaces.`);
+        console.log(`[BENCH] Completed with ${newInterfaces.length} interfaces.`);
       } else {
-        if (dashboard) dashboard.log(`[BENCH] Failed with code ${code}`);
+        console.log(`[BENCH] Failed with code ${code}`);
       }
     });
+  };
 
+  app.post('/api/benchmark', (req, res) => {
+    runBenchmark();
     res.json({ status: 'initiated' });
   });
+
+  // Background tasks
+  setInterval(() => {
+    runBenchmark();
+  }, 10000);
 
   // --- API: PID Tune ---
   app.post('/api/pid/tune', (req, res) => {
@@ -218,6 +242,11 @@ async function startServer() {
 
   let dashboard: any = null;
 
+  app.get('/api/trigger-fix', (req, res) => {
+    triggerRecovery();
+    res.json({ status: 'triggered' });
+  });
+
   // --- API: Fix ---
   const triggerRecovery = () => {
     console.log('[SERVER] triggerRecovery called');
@@ -231,22 +260,28 @@ async function startServer() {
     // Execute real fix-wifi.sh
     const fixProcess = spawn('bash', [path.join(WORKSPACE_DIR, 'fix-wifi.sh')]);
     
-    fixProcess.on('error', (err) => {
-      currentTelemetry.isFixing = false;
-      console.error(`[SERVER] Failed to start fix-wifi.sh: ${err.message}`);
-      if (dashboard) dashboard.log(`[FIX] ERROR: Failed to start script: ${err.message}`);
-    });
-
     fixProcess.stdout.on('data', (data) => {
       const msg = data.toString().trim();
-      if (msg && dashboard) {
-        dashboard.log(`[FIX] ${msg}`);
-      }
+      console.log(`[FIX STDOUT] ${msg}`);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [FIX STDOUT] ${msg}\n`);
+    });
+
+    fixProcess.stderr.on('data', (data) => {
+      const msg = data.toString().trim();
+      console.error(`[FIX STDERR] ${msg}`);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [FIX STDERR] ${msg}\n`);
     });
 
     fixProcess.on('close', (code) => {
       currentTelemetry.isFixing = false;
-      if (dashboard) dashboard.log(`[FIX] Sequence complete with code ${code}`);
+      console.log(`[SERVER] fix-wifi.sh closed with code ${code}`);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] fix-wifi.sh closed with code ${code}\n`);
+    });
+
+    fixProcess.on('error', (err) => {
+      currentTelemetry.isFixing = false;
+      console.error(`[SERVER] Failed to start fix-wifi.sh: ${err.message}`);
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Failed to start fix-wifi.sh: ${err.message}\n`);
     });
   };
 
@@ -303,32 +338,33 @@ async function startServer() {
     // Start Autonomous Daemon in background
     const daemon = spawn('bash', [path.join(WORKSPACE_DIR, 'network_autonomous_daemon.sh')], {
       detached: true,
-      stdio: 'ignore'
+      stdio: 'pipe'
+    });
+    daemon.stdout.on('data', (data) => {
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DAEMON-STDOUT] ${data}\n`);
+    });
+    daemon.stderr.on('data', (data) => {
+      fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DAEMON-STDERR] ${data}\n`);
     });
     daemon.unref();
     console.log('[SERVER] Autonomous Daemon started in background.');
-
+    
     // Start Terminal Dashboard
     try {
-      if (!process.env.TERM) {
-        process.env.TERM = 'xterm-256color';
-      }
-      dashboard = startDashboard(
-        () => currentTelemetry,
-        () => {
-          // Trigger real recovery
-          triggerRecovery();
-        }
-      );
+      dashboard = spawn('tsx', [path.join(WORKSPACE_DIR, 'dashboard.ts')], {
+        stdio: 'inherit',
+        env: { ...process.env, PROJECT_ROOT: WORKSPACE_DIR }
+      });
+      console.log('[SERVER] Terminal Dashboard spawned.');
     } catch (e: any) {
-      console.error('[SERVER] Dashboard failed to start:', e.message);
+      console.error('[SERVER] Failed to spawn dashboard:', e.message);
       fs.appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [SERVER] Dashboard failed: ${e.message}\n`);
     }
 
     // Handle clean exit
     const cleanExit = () => {
-      if (dashboard && dashboard.screen) {
-        dashboard.screen.destroy();
+      if (dashboard && dashboard.kill) {
+        dashboard.kill();
       }
       process.exit(0);
     };

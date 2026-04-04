@@ -4,7 +4,7 @@
 # fix-wifi.sh (FORENSIC ENGINE v39.8)
 # =============================================================================
 # [AUDIT POINT 1] Strict Mode & Environment Neutralization
-set -euo pipefail
+set -euxo pipefail
 IFS=$'\n\t'
 
 # [AUDIT POINT 2] Path Resolution & Mutex Lock
@@ -26,7 +26,7 @@ log_event() {
     local msg="$2"
     local timestamp
     timestamp=$(date -Iseconds)
-    echo "[$timestamp] [$type] $msg" | tee -a "$LOG_FILE"
+    echo "[$timestamp] [$type] $msg" | tee -a "$LOG_FILE" >&2
 }
 
 # [AUDIT POINT 5] Binary Verification
@@ -51,32 +51,66 @@ hardware_handshake() {
     
     # [AUDIT POINT 8] RFKill Audit
     log_event "RFKILL" "Unblocking all wireless devices."
-    rfkill unblock all || log_event "ERROR" "rfkill failed."
+    if command -v rfkill >/dev/null 2>&1; then
+        rfkill unblock all || log_event "ERROR" "rfkill failed."
+    else
+        log_event "WARN" "rfkill not found, skipping."
+    fi
 
     # [AUDIT POINT 9] Module Reload (The "Nuclear" Button)
     log_event "MODULE" "Reloading BCM4331 driver (brcmsmac/bcma)."
-    modprobe -r brcmsmac bcma || true
-    modprobe brcmsmac || log_event "ERROR" "modprobe failed."
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe -r brcmsmac bcma || true
+        modprobe brcmsmac || log_event "ERROR" "modprobe failed."
+    else
+        log_event "WARN" "modprobe not found, skipping."
+    fi
 
     # [AUDIT POINT 10] NetworkManager Force-On
     log_event "NMCLI" "Forcing NetworkManager global networking ON."
-    nmcli networking on || true
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli networking on || true
+    else
+        log_event "WARN" "nmcli not found, skipping."
+    fi
+
+    # [AUDIT POINT 10.1] Force all interfaces UP
+    log_event "RECOVERY" "Forcing all interfaces UP via ip link."
+    local all_ifaces
+    if [[ -f /proc/net/dev ]]; then
+        all_ifaces=$(awk -F: '/^ *[a-z0-9]+:/ {print $1}' /proc/net/dev | sed 's/ //g' | grep -v "lo" || true)
+    else
+        all_ifaces=$(ip -o link show | awk -F': ' '{print $2}' | grep -v "lo" | sed 's/@.*//' || true)
+    fi
+    for iface in $all_ifaces; do
+        log_event "RECOVERY" "Bringing up $iface..."
+        ip link set "$iface" up || true
+    done
 }
 
 # [AUDIT POINT 11] Interface Discovery
 discover_interface() {
-    local iface
+    local iface=""
     # Try nmcli first (structured)
-    iface=$(nmcli -t -f DEVICE dev 2>/dev/null | grep -E "^w" | head -n1 || true)
+    if command -v nmcli >/dev/null 2>&1; then
+        iface=$(nmcli -t -f DEVICE dev 2>/dev/null | grep -E "^(w|e)" | head -n1 || true)
+    fi
     
     # Fallback to sysfs
-    if [[ -z "$iface" ]]; then
-        iface=$(ls /sys/class/net | grep -E "^w" | head -n1 || true)
+    if [[ -z "$iface" ]] && [[ -d /sys/class/net ]]; then
+        iface=$(ls /sys/class/net | grep -E "^(w|e)" | head -n1 || true)
     fi
 
     # Fallback to /proc/net/dev
-    if [[ -z "$iface" ]]; then
-        iface=$(awk -F: '/^ *w/ {print $1}' /proc/net/dev | head -n1 | xargs || true)
+    if [[ -z "$iface" ]] && [[ -f /proc/net/dev ]]; then
+        log_event "DEBUG" "Checking /proc/net/dev..."
+        if command -v awk >/dev/null 2>&1; then
+            # USER REQUEST COMPLIANCE: Use awk for robust extraction
+            iface=$(awk -F: '/^ *[a-z0-9]+:/ {gsub(/ /, "", $1); print $1}' /proc/net/dev | grep -v "lo" | head -n1 || true)
+            log_event "DEBUG" "Found in /proc/net/dev: $iface"
+        else
+            log_event "WARN" "awk not found, skipping /proc/net/dev check."
+        fi
     fi
 
     if [[ -z "$iface" ]]; then
