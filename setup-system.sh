@@ -143,13 +143,19 @@ echo "[SETUP] Dracut config written: $DRACUT_FILE"
 #      Run it now if firmware is present. Skip if firmware missing -- prepare-bundle.sh
 #      must run first in that case.
 if ls /usr/lib/firmware/b43/*.fw >/dev/null 2>&1; then
-    echo "[SETUP] Firmware present -- rebuilding initramfs with dracut."
-    if [[ "$EUID" -eq 0 ]]; then
-        dracut --force 2>&1 | tail -5
+    INITRAMFS="/boot/initramfs-$(uname -r).img"
+    NEWEST_FW=$(ls -t /usr/lib/firmware/b43/*.fw | head -1)
+    if [[ ! -f "$INITRAMFS" ]] || [[ "$NEWEST_FW" -nt "$INITRAMFS" ]]; then
+        echo "[SETUP] Firmware newer than initramfs -- rebuilding."
+        if [[ "$EUID" -eq 0 ]]; then
+            dracut --force 2>&1 | tail -5
+        else
+            sudo dracut --force 2>&1 | tail -5
+        fi
+        echo "[SETUP] Initramfs rebuilt."
     else
-        sudo dracut --force 2>&1 | tail -5
+        echo "[SETUP] Initramfs is current -- skipping dracut rebuild."
     fi
-    echo "[SETUP] Initramfs rebuilt."
 else
     echo "[SETUP] WARN: /usr/lib/firmware/b43 firmware missing -- run prepare-bundle.sh first."
     echo "[SETUP] WARN: initramfs not rebuilt. Wi-Fi will work post-boot but not at boot time."
