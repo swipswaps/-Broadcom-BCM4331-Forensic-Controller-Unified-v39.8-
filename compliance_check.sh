@@ -27,7 +27,8 @@ check_feature() {
 check_feature "Forensic Engine (fix-wifi.sh)" "AUDIT POINT 17" "fix-wifi.sh"
 check_feature "BKW Logic" "save_bkw" "fix-wifi.sh"
 check_feature "RFKill Audit" "rfkill unblock all" "fix-wifi.sh"
-check_feature "Module Reload" "modprobe -r brcmsmac" "fix-wifi.sh"
+check_feature "Nuclear PCI Unbind" "unbind" "fix-wifi.sh"
+check_feature "allhwsupport=1" "allhwsupport=1" "fix-wifi.sh"
 
 # 2. System Integration
 check_feature "Sudoers Hardening" "NOPASSWD" "setup-system.sh"
@@ -46,8 +47,13 @@ check_feature "Lucide Icons" "Wifi" "src/App.tsx"
 # 5. Autonomous Daemon
 check_feature "Self-Healing Loop" "while true" "network_autonomous_daemon.sh"
 check_feature "DNS Policy Awareness" "validate_dns" "network_autonomous_daemon.sh"
+check_feature "Kernel Monitoring" "journalctl -f" "network_autonomous_daemon.sh"
 
-# 6. Forensic Log
+# 6. Zero-State Recovery
+check_feature "Cold-Start Script" "pkill -f" "cold-start.sh"
+check_feature "Git Reset Hard" "reset --hard" "cold-start.sh"
+
+# 7. Forensic Log
 if [[ -f "$LOG_FILE" ]]; then
     echo "[OK] Forensic Log (verbatim_handshake.log)"
 else

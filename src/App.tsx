@@ -113,6 +113,12 @@ export default function App() {
     fetchData();
   };
 
+  const triggerColdStart = async () => {
+    if (window.confirm('WARNING: This will kill the server, reset the local repo to origin/main, and perform a full rebuild. Proceed?')) {
+      await fetch('/api/cold-start', { method: 'POST' });
+    }
+  };
+
   const updatePid = async () => {
     await fetch('/api/pid/tune', {
       method: 'POST',
@@ -188,6 +194,15 @@ export default function App() {
             >
               <Zap size={18} fill="currentColor" className={telemetry.isFixing ? 'animate-bounce' : 'group-hover:rotate-12 transition-transform'} />
               {telemetry.isFixing ? 'RECOVERY ACTIVE' : 'NUCLEAR RECOVERY'}
+            </button>
+
+            <button 
+              onClick={triggerColdStart}
+              className="group flex items-center gap-3 px-4 py-3 rounded-lg font-black text-sm transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-600 shadow-xl hover:scale-[1.02] active:scale-95"
+              title="Full Zero-State Recovery"
+            >
+              <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+              COLD START
             </button>
           </div>
         </header>

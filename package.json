@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "PROJECT_ROOT=$(pwd) tsx server.ts",
     "setup": "chmod +x *.sh && ./setup-system.sh",
+    "cold-start": "chmod +x cold-start.sh && ./cold-start.sh",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

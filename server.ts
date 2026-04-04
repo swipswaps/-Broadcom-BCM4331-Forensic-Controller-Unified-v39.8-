@@ -257,6 +257,16 @@ async function startServer() {
     res.json({ status: 'triggered' });
   });
 
+  app.post('/api/cold-start', (req, res) => {
+    console.error('[SERVER] COLD START TRIGGERED');
+    spawn('bash', [path.join(WORKSPACE_DIR, 'cold-start.sh')], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+    res.json({ status: 'initiated' });
+    // The process will be killed by the script itself
+  });
+
   // --- API: Fix ---
   const triggerRecovery = () => {
     console.error('[SERVER] triggerRecovery called');
