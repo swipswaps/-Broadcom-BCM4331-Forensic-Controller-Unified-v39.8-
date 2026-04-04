@@ -14,8 +14,21 @@ async function startServer() {
   // --- SILENCE CONSOLE ---
   // Redirect all console output to the log file to prevent dashboard corruption
   const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
-  const originalLog = console.log;
-  const originalError = console.error;
+  
+  // Capture original write methods
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  // Redirect process.stdout/stderr to log file
+  process.stdout.write = (chunk: any) => {
+    logStream.write(`[${new Date().toISOString()}] [STDOUT] ${chunk}`);
+    return true;
+  };
+
+  process.stderr.write = (chunk: any) => {
+    logStream.write(`[${new Date().toISOString()}] [STDERR] ${chunk}`);
+    return true;
+  };
 
   console.log = (...args) => {
     const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');

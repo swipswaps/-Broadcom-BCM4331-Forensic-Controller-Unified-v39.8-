@@ -173,7 +173,11 @@ audit_dns() {
     else
         log_event "DNS" "DNS Resolution FAILED. Injecting fallbacks."
         # Non-invasive fallback
-        echo "nameserver 1.1.1.1" | tee /etc/resolv.conf >/dev/null
+        # Ensure /etc/resolv.conf is not immutable (common on some distros)
+        if command -v chattr >/dev/null 2>&1; then
+            chattr -i /etc/resolv.conf 2>/dev/null || true
+        fi
+        echo "nameserver 1.1.1.1" | tee /etc/resolv.conf >/dev/null || log_event "ERROR" "Failed to update /etc/resolv.conf"
     fi
 }
 

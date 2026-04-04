@@ -186,64 +186,68 @@ export function startDashboard() {
   };
 
   async function update() {
-    const data = await fetchTelemetry();
-    if (!data) return;
+    try {
+      const data = await fetchTelemetry();
+      if (!data) return;
 
-    // Update Charts
-    if (data.signal !== undefined) {
-      signalData.y.shift(); signalData.y.push(Number(data.signal) || -100);
-    }
-    rxData.y.shift(); rxData.y.push(Number(data.rx) || 0);
-    txData.y.shift(); txData.y.push(Number(data.tx) || 0);
-    
-    signalLine.setData([signalData]);
-    trafficLine.setData([rxData, txData]);
-
-    // Update Audit Points
-    if (data.auditPoints) {
-      let auditContent = '';
-      const points = Object.entries(data.auditPoints);
-      for (let i = 0; i < points.length; i++) {
-        const [key, val] = points[i];
-        const label = AUDIT_LABELS[key] || key.toUpperCase();
-        const color = val ? '{green-fg}' : '{red-fg}';
-        auditContent += `${color}${label}{/green-fg}  `;
-        if ((i + 1) % 6 === 0) auditContent += '\n';
+      // Update Charts
+      if (data.signal !== undefined) {
+        signalData.y.shift(); signalData.y.push(Number(data.signal) || -100);
       }
-      auditPointsBox.setContent(auditContent);
-    }
+      rxData.y.shift(); rxData.y.push(Number(data.rx) || 0);
+      txData.y.shift(); txData.y.push(Number(data.tx) || 0);
+      
+      signalLine.setData([signalData]);
+      trafficLine.setData([rxData, txData]);
 
-    // Update Nuclear Button
-    if (data.isFixing) {
-      nuclearBtn.style.bg = 'yellow';
-      nuclearBtn.style.fg = 'black';
-      nuclearBtn.setContent('\n   [ RECOVERY ]\n   IN PROGRESS...');
-    } else {
-      nuclearBtn.style.bg = 'red';
-      nuclearBtn.style.fg = 'white';
-      nuclearBtn.setContent('\n   [ PRESS N ]\n   TRIGGER HANDSHAKE');
-    }
+      // Update Audit Points
+      if (data.auditPoints) {
+        let auditContent = '';
+        const points = Object.entries(data.auditPoints);
+        for (let i = 0; i < points.length; i++) {
+          const [key, val] = points[i];
+          const label = AUDIT_LABELS[key] || key.toUpperCase();
+          const color = val ? '{green-fg}' : '{red-fg}';
+          auditContent += `${color}${label}{/}  `;
+          if ((i + 1) % 6 === 0) auditContent += '\n';
+        }
+        auditPointsBox.setContent(auditContent);
+      }
 
-    // Update Table (Multi-Interface Load Matrix)
-    if (data.interfaces && data.interfaces.length > 0) {
-      telemetryTable.setData({
-        headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
-        data: data.interfaces.map((iface: any) => [
-          String(iface.name),
-          (Number(iface.rx) || 0).toFixed(1),
-          (Number(iface.tx) || 0).toFixed(1),
-          ((Number(iface.weight) || 0) * 100).toFixed(1)
-        ])
-      });
-    } else if (data.bkwInterface) {
-      // Fallback if no interfaces array
-      telemetryTable.setData({
-        headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
-        data: [[String(data.bkwInterface), (Number(data.rx) || 0).toFixed(1), (Number(data.tx) || 0).toFixed(1), '100.0']]
-      });
-    }
+      // Update Nuclear Button
+      if (data.isFixing) {
+        nuclearBtn.style.bg = 'yellow';
+        nuclearBtn.style.fg = 'black';
+        nuclearBtn.setContent('\n   [ RECOVERY ]\n   IN PROGRESS...');
+      } else {
+        nuclearBtn.style.bg = 'red';
+        nuclearBtn.style.fg = 'white';
+        nuclearBtn.setContent('\n   [ PRESS N ]\n   TRIGGER HANDSHAKE');
+      }
 
-    screen.render();
+      // Update Table (Multi-Interface Load Matrix)
+      if (data.interfaces && data.interfaces.length > 0) {
+        telemetryTable.setData({
+          headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
+          data: data.interfaces.map((iface: any) => [
+            String(iface.name),
+            (Number(iface.rx) || 0).toFixed(1),
+            (Number(iface.tx) || 0).toFixed(1),
+            ((Number(iface.weight) || 0) * 100).toFixed(1)
+          ])
+        });
+      } else if (data.bkwInterface) {
+        // Fallback if no interfaces array
+        telemetryTable.setData({
+          headers: ['Interface', 'RX (KB/s)', 'TX (KB/s)', 'Weight (%)'],
+          data: [[String(data.bkwInterface), (Number(data.rx) || 0).toFixed(1), (Number(data.tx) || 0).toFixed(1), '100.0']]
+        });
+      }
+
+      screen.render();
+    } catch (e: any) {
+      logToFile(`Update error: ${e.message}`);
+    }
   }
 
   // Initial render

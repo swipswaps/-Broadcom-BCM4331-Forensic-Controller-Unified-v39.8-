@@ -105,13 +105,14 @@ export default function App() {
   }, [forensics, activeTab]);
 
   const triggerFix = async () => {
+    if (telemetry?.isFixing) return;
     await fetch('/api/fix', { method: 'POST' });
-    fetchData();
+    // Don't fetchData immediately, let the interval handle it to avoid double-refresh
   };
 
   const triggerBenchmark = async () => {
+    if (telemetry?.isBenchmarking) return;
     await fetch('/api/benchmark', { method: 'POST' });
-    fetchData();
   };
 
   const triggerColdStart = async () => {
@@ -319,7 +320,7 @@ export default function App() {
                   <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl">
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] mb-8">Forensic Audit Status (18 Deterministic Points)</h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-                      {Object.entries(telemetry.auditPoints).map(([key, val]) => (
+                      {telemetry.auditPoints && Object.entries(telemetry.auditPoints).map(([key, val]) => (
                         <div key={key} className={`flex items-center gap-2 px-3 py-2 rounded border transition-colors ${
                           val ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'
                         }`}>
